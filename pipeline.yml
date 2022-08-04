@@ -1,0 +1,64 @@
+image: node:14.19-alpine3.14
+
+variables:
+  FF_USE_FASTZIP: 'true'
+  ARTIFACT_COMPRESSION_LEVEL: 'fast'
+  CACHE_COMPRESSION_LEVEL: 'fast'
+
+stages:
+  - install_dependencies
+  - build_dev
+  - build_docker_image
+
+install_dependencies:
+  stage: install_dependencies
+  cache:
+    key:
+      files:
+        - yarn.lock
+    paths:
+      - node_modules
+    policy: pull-push
+  script:
+    - yarn install
+  only:
+    refs:
+      - dev
+    variables:
+      - $CI_COMMIT_MESSAGE =~ /[R]/
+
+build_dev:
+  stage: build_dev
+  cache:
+    key:
+      files:
+        - yarn.lock
+    paths:
+      - node_modules
+    policy: pull
+  script:
+    - CI=false && yarn build
+  only:
+    refs:
+      - dev
+    variables:
+      - $CI_COMMIT_MESSAGE =~ /[R]/
+
+build_docker_image:
+  stage: build_docker_image
+  image: docker:19.03.15
+  services:
+    - docker:dind
+  before_script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" $CI_REGISTRY
+  script:
+    - >
+      export VERSION=$(cat package.json|grep version|head -1|awk -F: '{ print $2 }'|sed 's/[", ]//g')
+    - export CONTAINER_RELEASE_IMAGE=$CI_REGISTRY_IMAGE/dev:v$VERSION
+    - docker build -t $CONTAINER_RELEASE_IMAGE .
+    - docker push "$CONTAINER_RELEASE_IMAGE"
+  only:
+    refs:
+      - dev
+    variables:
+      - $CI_COMMIT_MESSAGE =~ /[R]/
